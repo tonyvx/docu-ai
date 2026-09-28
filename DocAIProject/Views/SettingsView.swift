@@ -22,6 +22,10 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.segmented)
 
+                    Text("Changing this setting changes where new imports are saved and which files appear in the Library. Existing files stay in their original location and are not moved.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
                     if PersistenceLayer(rawValue: persistenceLayer) == .googleDrive {
                         Text("Drive uploads are filed in the docu-ai folder. A local copy is retained for previews and document search.")
                             .font(.footnote)

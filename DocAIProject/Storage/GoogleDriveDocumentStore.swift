@@ -16,6 +16,12 @@ enum PersistenceLayer: String, CaseIterable, Identifiable {
     }
 }
 
+struct GoogleDrivePDF: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let modifiedTime: String?
+}
+
 enum GoogleDriveStorageError: LocalizedError {
     case missingConfiguration
     case signInRequired
@@ -191,6 +197,34 @@ final class GoogleDriveDocumentStore {
         _ = try await requestData(for: request)
     }
 
+    func listPDFs() async throws -> [GoogleDrivePDF] {
+        let token = try await freshAccessToken()
+        guard let rootFolderID = try await findFolderID(named: rootFolderName, token: token) else {
+            return []
+        }
+
+        var folders = [rootFolderID]
+        var visitedFolders = Set<String>()
+        var pdfs = [GoogleDrivePDF]()
+        var folderIndex = 0
+
+        while folderIndex < folders.count {
+            let folderID = folders[folderIndex]
+            folderIndex += 1
+            guard visitedFolders.insert(folderID).inserted else { continue }
+
+            for file in try await listChildren(of: folderID, token: token) {
+                if file.mimeType == folderMimeType {
+                    folders.append(file.id)
+                } else if file.mimeType == "application/pdf" {
+                    pdfs.append(GoogleDrivePDF(id: file.id, name: file.name ?? "Untitled.pdf", modifiedTime: file.modifiedTime))
+                }
+            }
+        }
+
+        return pdfs.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
     private func freshAccessToken() async throws -> String {
         guard let user = await restoredUser() else {
             throw GoogleDriveStorageError.signInRequired
@@ -263,6 +297,53 @@ final class GoogleDriveDocumentStore {
         return folder.id
     }
 
+    private func findFolderID(named name: String, token: String) async throws -> String? {
+        let escapedName = name
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+        guard var components = URLComponents(string: "https://www.googleapis.com/drive/v3/files") else {
+            throw GoogleDriveStorageError.invalidResponse
+        }
+        components.queryItems = [
+            URLQueryItem(name: "q", value: "name = '\(escapedName)' and mimeType = '\(folderMimeType)' and trashed = false"),
+            URLQueryItem(name: "fields", value: "files(id)"),
+            URLQueryItem(name: "pageSize", value: "100")
+        ]
+        guard let url = components.url else { throw GoogleDriveStorageError.invalidResponse }
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let listing: DriveFileList = try await perform(request)
+        return listing.files.first?.id
+    }
+
+    private func listChildren(of folderID: String, token: String) async throws -> [DriveFileResponse] {
+        var files = [DriveFileResponse]()
+        var pageToken: String?
+
+        repeat {
+            guard var components = URLComponents(string: "https://www.googleapis.com/drive/v3/files") else {
+                throw GoogleDriveStorageError.invalidResponse
+            }
+            var queryItems = [
+                URLQueryItem(name: "q", value: "'\(folderID)' in parents and trashed = false"),
+                URLQueryItem(name: "fields", value: "nextPageToken,files(id,name,mimeType,modifiedTime)"),
+                URLQueryItem(name: "pageSize", value: "1000")
+            ]
+            if let pageToken {
+                queryItems.append(URLQueryItem(name: "pageToken", value: pageToken))
+            }
+            components.queryItems = queryItems
+            guard let url = components.url else { throw GoogleDriveStorageError.invalidResponse }
+            var request = URLRequest(url: url)
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            let listing: DriveFileList = try await perform(request)
+            files.append(contentsOf: listing.files)
+            pageToken = listing.nextPageToken
+        } while pageToken != nil
+
+        return files
+    }
+
     private func perform<Response: Decodable>(_ request: URLRequest) async throws -> Response {
         let data = try await requestData(for: request)
         do {
@@ -295,10 +376,14 @@ private struct DriveFileMetadata: Encodable {
 
 private struct DriveFileList: Decodable {
     let files: [DriveFileResponse]
+    let nextPageToken: String?
 }
 
 private struct DriveFileResponse: Decodable {
     let id: String
+    let name: String?
+    let mimeType: String?
+    let modifiedTime: String?
 }
 
 private struct DriveAPIError: Decodable {

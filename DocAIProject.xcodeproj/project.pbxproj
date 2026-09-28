@@ -277,6 +277,7 @@
 				INFOPLIST_FILE = GoogleOAuthInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Docu AI";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Scan paper documents to create PDFs for your Docu AI library.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Unlock Docu AI to access your documents.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -327,6 +328,7 @@
 				INFOPLIST_FILE = GoogleOAuthInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Docu AI";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Scan paper documents to create PDFs for your Docu AI library.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Unlock Docu AI to access your documents.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;

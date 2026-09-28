@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct HomeView: View {
+    @State private var showingImport = false
+
     var body: some View {
         TabView {
             OverviewView()
@@ -16,6 +18,24 @@ struct HomeView: View {
                 .tabItem { Label("Settings", systemImage: "gearshape.fill") }
         }
         .tint(.accentColor)
+        .overlay(alignment: .bottom) {
+            Button {
+                showingImport = true
+            } label: {
+                Image(systemName: "plus")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 58, height: 58)
+                    .background(Color.accentColor, in: Circle())
+                    .overlay(Circle().stroke(.background, lineWidth: 4))
+                    .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
+            }
+            .accessibilityLabel("Import document")
+            .padding(.bottom, 58)
+        }
+        .sheet(isPresented: $showingImport) {
+            ImportAndAnalyzeView()
+        }
     }
 }
 
