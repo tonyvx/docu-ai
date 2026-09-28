@@ -29,7 +29,7 @@ struct ImportAndAnalyzeView: View {
     }
 
     private var canSave: Bool {
-        selectedPersistenceLayer != .googleDrive || GoogleDriveDocumentStore.shared.hasDriveAccess
+        selectedPersistenceLayer.store.isReadyForWrites
     }
 
     private func normalizeCategory(_ value: String) -> String {
@@ -173,29 +173,20 @@ struct ImportAndAnalyzeView: View {
         isProcessing = true
         defer { isProcessing = false }
 
-        var localDestination: URL?
-        var uploadedFileID: String?
+        var savedLocation: StoredPDFLocation?
         var pendingDocument: Document?
+        let documentStore = selectedPersistenceLayer.store
 
         let accessing = sourceURL.startAccessingSecurityScopedResource()
         defer { if accessing { sourceURL.stopAccessingSecurityScopedResource() } }
 
         do {
-            // Keep a local copy for previews and document search.
-            let destination = try LocalDocumentStore.copy(
+            let location = try await documentStore.savePDF(
                 fileAt: sourceURL,
                 suggestedPath: saveFolderPath,
                 originalName: saveFileName
             )
-            localDestination = destination
-
-            if selectedPersistenceLayer == .googleDrive {
-                uploadedFileID = try await GoogleDriveDocumentStore.shared.upload(
-                    fileAt: destination,
-                    suggestedPath: saveFolderPath,
-                    originalName: saveFileName
-                )
-            }
+            savedLocation = location
 
             // Create SwiftData record
             let doc = Document(
@@ -206,8 +197,8 @@ struct ImportAndAnalyzeView: View {
                 suggestedPath: saveFolderPath,
                 extractedText: String(extractedText.prefix(8000))   // keep a usable excerpt
             )
-            doc.iCloudURL = destination
-            doc.googleDriveFileID = uploadedFileID
+            doc.localFileURL = location.localURL
+            doc.googleDriveFileID = location.remoteID
 
             // Simple date parsing (improve later)
             if let dateStr = analysis.documentDate {
@@ -234,11 +225,8 @@ struct ImportAndAnalyzeView: View {
             if let pendingDocument {
                 modelContext.delete(pendingDocument)
             }
-            if let uploadedFileID {
-                try? await GoogleDriveDocumentStore.shared.delete(fileID: uploadedFileID)
-            }
-            if let localDestination {
-                try? FileManager.default.removeItem(at: localDestination)
+            if let savedLocation {
+                try? await documentStore.deletePDF(at: savedLocation)
             }
             errorMessage = error.localizedDescription
         }

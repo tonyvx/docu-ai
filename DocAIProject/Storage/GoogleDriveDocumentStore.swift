@@ -2,20 +2,6 @@ import Foundation
 import GoogleSignIn
 import UIKit
 
-enum PersistenceLayer: String, CaseIterable, Identifiable {
-    case local
-    case googleDrive
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .local: "Local"
-        case .googleDrive: "Google Drive"
-        }
-    }
-}
-
 struct GoogleDrivePDF: Identifiable, Hashable {
     let id: String
     let name: String
@@ -52,7 +38,7 @@ enum GoogleDriveStorageError: LocalizedError {
 }
 
 @MainActor
-final class GoogleDriveDocumentStore {
+final class GoogleDriveDocumentStore: DocumentStorageBackend {
     static let shared = GoogleDriveDocumentStore()
     static let driveScope = "https://www.googleapis.com/auth/drive.file"
 
@@ -84,6 +70,8 @@ final class GoogleDriveDocumentStore {
     var hasDriveAccess: Bool {
         GIDSignIn.sharedInstance.currentUser?.grantedScopes?.contains(Self.driveScope) == true
     }
+
+    var isReadyForWrites: Bool { hasDriveAccess }
 
     func restoreSignIn() async -> Bool {
         guard isConfigured,
@@ -187,6 +175,31 @@ final class GoogleDriveDocumentStore {
         return response.id
     }
 
+    func savePDF(fileAt url: URL, suggestedPath: String, originalName: String) async throws -> StoredPDFLocation {
+        let localURL = try LocalDocumentStore.copy(
+            fileAt: url,
+            suggestedPath: suggestedPath,
+            originalName: originalName
+        )
+
+        do {
+            let remoteID = try await upload(fileAt: localURL, suggestedPath: suggestedPath, originalName: originalName)
+            return StoredPDFLocation(localURL: localURL, remoteID: remoteID)
+        } catch {
+            try? FileManager.default.removeItem(at: localURL)
+            throw error
+        }
+    }
+
+    func deletePDF(at location: StoredPDFLocation) async throws {
+        if let remoteID = location.remoteID {
+            try await delete(fileID: remoteID)
+        }
+        if let localURL = location.localURL {
+            try FileManager.default.removeItem(at: localURL)
+        }
+    }
+
     func delete(fileID: String) async throws {
         let token = try await freshAccessToken()
         let endpoint = URL(string: "https://www.googleapis.com/drive/v3/files")!
@@ -223,6 +236,18 @@ final class GoogleDriveDocumentStore {
         }
 
         return pdfs.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    func listFiles() async throws -> [StoredPDF] {
+        try await listPDFs().map { file in
+            StoredPDF(
+                id: file.id,
+                name: file.name,
+                modifiedAt: file.modifiedTime.flatMap { ISO8601DateFormatter().date(from: $0) },
+                localURL: nil,
+                remoteID: file.id
+            )
+        }
     }
 
     private func freshAccessToken() async throws -> String {

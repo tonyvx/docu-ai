@@ -255,7 +255,7 @@ final class LocalRAGIndex {
     }
 
     private func extractedText(for document: Document) async -> String {
-        guard let url = document.iCloudURL else {
+        guard let url = document.localFileURL else {
             return document.extractedText
         }
 

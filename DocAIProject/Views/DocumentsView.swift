@@ -6,9 +6,9 @@ struct DocumentsView: View {
     @AppStorage("persistenceLayer") private var persistenceLayer = PersistenceLayer.local.rawValue
     @State private var searchText = ""
     @State private var selectedCategory = "All"
-    @State private var drivePDFs = [GoogleDrivePDF]()
-    @State private var isLoadingDriveFiles = false
-    @State private var driveError: String?
+    @State private var storedPDFs = [StoredPDF]()
+    @State private var isLoadingFiles = false
+    @State private var storageError: String?
 
     private let categories = ["All"] + DocumentCategory.selectableValues
 
@@ -16,32 +16,35 @@ struct DocumentsView: View {
         PersistenceLayer(rawValue: persistenceLayer) ?? .local
     }
 
-    private var localDocuments: [Document] {
-        documents.filter { $0.googleDriveFileID == nil }
-    }
-
-    private var documentsByDriveID: [String: Document] {
+    private var documentsByStorageID: [String: Document] {
         Dictionary(
             documents.compactMap { document in
-                document.googleDriveFileID.map { ($0, document) }
+                if let remoteID = document.googleDriveFileID {
+                    return (remoteID, document)
+                }
+                if let localURL = document.localFileURL {
+                    return (localURL.standardizedFileURL.path, document)
+                }
+                return nil
             },
             uniquingKeysWith: { first, _ in first }
         )
     }
 
-    private var filteredDocuments: [Document] {
-        localDocuments.filter { document in
-            let matchesSearch = searchText.isEmpty ||
-                document.originalFileName.localizedCaseInsensitiveContains(searchText) ||
-                document.summary.localizedCaseInsensitiveContains(searchText)
-            let matchesCategory = selectedCategory == "All" || document.category == selectedCategory
-            return matchesSearch && matchesCategory
-        }
+    private var driveCachePaths: Set<String> {
+        Set(documents.filter { $0.googleDriveFileID != nil }
+            .compactMap { $0.localFileURL?.standardizedFileURL.path })
     }
 
-    private var filteredDrivePDFs: [GoogleDrivePDF] {
-        drivePDFs.filter { file in
-            let document = documentsByDriveID[file.id]
+    private var filteredStoredPDFs: [StoredPDF] {
+        storedPDFs.filter { file in
+            if selectedStorage == .local,
+               let localURL = file.localURL,
+               driveCachePaths.contains(localURL.standardizedFileURL.path) {
+                return false
+            }
+
+            let document = documentsByStorageID[file.id]
             let matchesSearch = searchText.isEmpty ||
                 file.name.localizedCaseInsensitiveContains(searchText) ||
                 (document?.summary.localizedCaseInsensitiveContains(searchText) ?? false)
@@ -51,14 +54,11 @@ struct DocumentsView: View {
     }
 
     private var visibleDocumentCount: Int {
-        selectedStorage == .local ? localDocuments.count : drivePDFs.count
+        storedPDFs.count
     }
 
     private var visibleCategoryCount: Int {
-        let categories = selectedStorage == .local
-            ? localDocuments.map(\.category)
-            : drivePDFs.compactMap { documentsByDriveID[$0.id]?.category }
-        return Set(categories).count
+        Set(storedPDFs.compactMap { documentsByStorageID[$0.id]?.category }).count
     }
 
     var body: some View {
@@ -69,26 +69,20 @@ struct DocumentsView: View {
                     statsSection
                     searchAndFiltersSection
 
-                    if selectedStorage == .googleDrive {
-                        if isLoadingDriveFiles {
-                            ProgressView("Loading Google Drive files…")
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 32)
-                        } else if let driveError {
-                            ContentUnavailableView(
-                                "Google Drive unavailable",
-                                systemImage: "externaldrive.badge.exclamationmark",
-                                description: Text(driveError)
-                            )
-                        } else if filteredDrivePDFs.isEmpty {
-                            emptyState
-                        } else {
-                            driveListSection
-                        }
-                    } else if filteredDocuments.isEmpty {
+                    if isLoadingFiles {
+                        ProgressView("Loading documents…")
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 32)
+                    } else if let storageError {
+                        ContentUnavailableView(
+                            "Storage unavailable",
+                            systemImage: "externaldrive.badge.exclamationmark",
+                            description: Text(storageError)
+                        )
+                    } else if filteredStoredPDFs.isEmpty {
                         emptyState
                     } else {
-                        documentListSection
+                        storedPDFListSection
                     }
                 }
                 .padding()
@@ -96,7 +90,7 @@ struct DocumentsView: View {
             .background(Color(.systemGroupedBackground))
             .navigationTitle(selectedStorage == .local ? "Local Library" : "Google Drive")
             .task(id: persistenceLayer) {
-                await loadDriveFilesIfNeeded()
+                await loadStoredFiles()
             }
             .navigationDestination(for: Document.self) { doc in
                 DocumentDetailView(document: doc)
@@ -174,33 +168,19 @@ struct DocumentsView: View {
         }
     }
 
-    private var documentListSection: some View {
+    private var storedPDFListSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Recent files")
                 .font(.headline)
 
-            ForEach(filteredDocuments) { doc in
-                NavigationLink(value: doc) {
-                    DocumentCard(document: doc)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
-    private var driveListSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Google Drive PDFs")
-                .font(.headline)
-
-            ForEach(filteredDrivePDFs) { file in
-                if let document = documentsByDriveID[file.id] {
+            ForEach(filteredStoredPDFs) { file in
+                if let document = documentsByStorageID[file.id] {
                     NavigationLink(value: document) {
                         DocumentCard(document: document)
                     }
                     .buttonStyle(.plain)
                 } else {
-                    DrivePDFCard(file: file)
+                    StoredPDFCard(file: file, storageTitle: selectedStorage.title)
                 }
             }
         }
@@ -228,21 +208,16 @@ struct DocumentsView: View {
     }
 
     @MainActor
-    private func loadDriveFilesIfNeeded() async {
-        guard selectedStorage == .googleDrive else {
-            drivePDFs = []
-            driveError = nil
-            return
-        }
-
-        isLoadingDriveFiles = true
-        driveError = nil
-        defer { isLoadingDriveFiles = false }
+    private func loadStoredFiles() async {
+        isLoadingFiles = true
+        storageError = nil
+        defer { isLoadingFiles = false }
 
         do {
-            drivePDFs = try await GoogleDriveDocumentStore.shared.listPDFs()
+            storedPDFs = try await selectedStorage.store.listFiles()
         } catch {
-            driveError = error.localizedDescription
+            storedPDFs = []
+            storageError = error.localizedDescription
         }
     }
 }
@@ -330,8 +305,9 @@ private struct DocumentCard: View {
     }
 }
 
-private struct DrivePDFCard: View {
-    let file: GoogleDrivePDF
+private struct StoredPDFCard: View {
+    let file: StoredPDF
+    let storageTitle: String
 
     var body: some View {
         HStack(spacing: 12) {
@@ -347,15 +323,14 @@ private struct DrivePDFCard: View {
                     .font(.headline)
                     .foregroundStyle(.primary)
                     .lineLimit(2)
-                Text("Google Drive PDF")
+                Text("\(storageTitle) PDF")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             Spacer(minLength: 8)
 
-            if let modifiedTime = file.modifiedTime,
-               let date = ISO8601DateFormatter().date(from: modifiedTime) {
+                if let date = file.modifiedAt {
                 Text(date.formatted(date: .abbreviated, time: .omitted))
                     .font(.caption2)
                     .foregroundStyle(.secondary)

@@ -17,7 +17,47 @@ enum DocumentStoragePath {
     }
 }
 
-struct LocalDocumentStore {
+struct LocalDocumentStore: DocumentStorageBackend {
+    var isReadyForWrites: Bool { true }
+
+    func listFiles() async throws -> [StoredPDF] {
+        let directory = try Self.documentsDirectory()
+        guard let enumerator = FileManager.default.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        var pdfs = [StoredPDF]()
+        while let url = enumerator.nextObject() as? URL {
+            guard url.pathExtension.lowercased() == "pdf" else { continue }
+            let values = try url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey])
+            guard values.isRegularFile == true else { continue }
+            pdfs.append(StoredPDF(
+                id: url.standardizedFileURL.path,
+                name: url.lastPathComponent,
+                modifiedAt: values.contentModificationDate,
+                localURL: url,
+                remoteID: nil
+            ))
+        }
+
+        return pdfs.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    func savePDF(fileAt url: URL, suggestedPath: String, originalName: String) async throws -> StoredPDFLocation {
+        let localURL = try Self.copy(fileAt: url, suggestedPath: suggestedPath, originalName: originalName)
+        return StoredPDFLocation(localURL: localURL, remoteID: nil)
+    }
+
+    func deletePDF(at location: StoredPDFLocation) async throws {
+        if let localURL = location.localURL {
+            try FileManager.default.removeItem(at: localURL)
+        }
+    }
+
     static func documentsDirectory() throws -> URL {
         let urls = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
         guard let documents = urls.first else {

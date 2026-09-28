@@ -171,7 +171,7 @@ private struct PDFPreviewSection: View {
         let fileManager = FileManager.default
         var candidateURLs = [URL]()
 
-        if let savedURL = document.iCloudURL {
+        if let savedURL = document.localFileURL {
             candidateURLs.append(savedURL)
         }
 
