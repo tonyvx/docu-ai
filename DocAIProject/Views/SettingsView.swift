@@ -27,7 +27,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
 
                     if PersistenceLayer(rawValue: persistenceLayer) == .googleDrive {
-                        Text("Docu AI can list PDFs across your Drive using read-only access. New uploads are filed in the docu-ai folder, with a local copy kept for previews and document search.")
+                        Text("Docu AI can list PDFs across your Drive and update file names. Renaming changes file metadata only, not PDF contents. New uploads are filed in the docu-ai folder, with a local copy kept for previews and document search.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }

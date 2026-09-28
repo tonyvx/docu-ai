@@ -2,15 +2,21 @@ import SwiftUI
 import SwiftData
 
 struct DocumentsView: View {
+    @Environment(\.modelContext) private var modelContext
     @Query(sort: \Document.createdAt, order: .reverse) private var documents: [Document]
     @AppStorage("persistenceLayer") private var persistenceLayer = PersistenceLayer.local.rawValue
+    @State private var navigationPath = NavigationPath()
     @State private var searchText = ""
     @State private var selectedCategory = "All"
     @State private var storedPDFs = [StoredPDF]()
     @State private var isLoadingFiles = false
     @State private var storageError: String?
+    @State private var creatingRecordID: String?
+    @State private var recordCreationError: String?
 
-    private let categories = ["All"] + DocumentCategory.selectableValues
+    private var categories: [String] { ["All"] + DocumentCategory.selectableValues }
+
+    private let analyzer = DocumentAnalyzer()
 
     private var selectedStorage: PersistenceLayer {
         PersistenceLayer(rawValue: persistenceLayer) ?? .local
@@ -62,12 +68,18 @@ struct DocumentsView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     headerCard
                     statsSection
                     searchAndFiltersSection
+
+                    if let recordCreationError {
+                        Text(recordCreationError)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
 
                     if isLoadingFiles {
                         ProgressView("Loading documents…")
@@ -180,7 +192,14 @@ struct DocumentsView: View {
                     }
                     .buttonStyle(.plain)
                 } else {
-                    StoredPDFCard(file: file, storageTitle: selectedStorage.title)
+                    StoredPDFCard(
+                        file: file,
+                        storageTitle: selectedStorage.title,
+                        isProcessing: creatingRecordID == file.id
+                    ) {
+                        Task { await createDocumentRecord(for: file) }
+                    }
+                    .disabled(creatingRecordID != nil)
                 }
             }
         }
@@ -218,6 +237,52 @@ struct DocumentsView: View {
         } catch {
             storedPDFs = []
             storageError = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func createDocumentRecord(for file: StoredPDF) async {
+        guard creatingRecordID == nil else { return }
+        creatingRecordID = file.id
+        recordCreationError = nil
+        defer { creatingRecordID = nil }
+
+        do {
+            let localURL = try await selectedStorage.store.localURL(for: file)
+            let fullText = try await PDFTextExtractor.extractText(from: localURL)
+            let analysis = try await analyzer.analyze(text: fullText, fileName: file.name)
+            let document = Document(
+                originalFileName: file.name,
+                category: DocumentCategory.normalized(analysis.category),
+                documentType: analysis.documentType,
+                summary: analysis.summary,
+                suggestedPath: analysis.suggestedPath,
+                extractedText: String(fullText.prefix(8000))
+            )
+            document.localFileURL = localURL
+            document.googleDriveFileID = file.remoteID
+
+            if let date = analysis.documentDate {
+                document.documentDate = ISO8601DateFormatter().date(from: date)
+            }
+
+            modelContext.insert(document)
+            do {
+                try modelContext.save()
+            } catch {
+                modelContext.delete(document)
+                throw error
+            }
+
+            do {
+                try await LocalRAGIndex.shared.index(document: document, fullText: fullText)
+            } catch {
+                print("Local RAG indexing deferred until the next chat scan: \(error.localizedDescription)")
+            }
+            SpotlightIndexer.index(document)
+            navigationPath.append(document)
+        } catch {
+            recordCreationError = error.localizedDescription
         }
     }
 }
@@ -308,38 +373,53 @@ private struct DocumentCard: View {
 private struct StoredPDFCard: View {
     let file: StoredPDF
     let storageTitle: String
+    let isProcessing: Bool
+    let action: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "doc.fill")
-                .font(.title3)
-                .frame(width: 38, height: 38)
-                .background(Color.accentColor.opacity(0.12))
-                .foregroundStyle(.accent)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: "doc.fill")
+                    .font(.title3)
+                    .frame(width: 38, height: 38)
+                    .background(Color.accentColor.opacity(0.12))
+                    .foregroundStyle(.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(file.name)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                Text("\(storageTitle) PDF")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(file.name)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                    Text("\(storageTitle) PDF · Add to library")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
-            Spacer(minLength: 8)
+                Spacer(minLength: 8)
+
+                if isProcessing {
+                    ProgressView()
+                        .frame(width: 24, height: 24)
+                } else {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.tint)
+                }
 
                 if let date = file.modifiedAt {
-                Text(date.formatted(date: .abbreviated, time: .omitted))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    Text(date.formatted(date: .abbreviated, time: .omitted))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 18))
         }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .buttonStyle(.plain)
+        .accessibilityLabel(isProcessing ? "Adding \(file.name) to library" : "Add \(file.name) to library")
     }
 }
 

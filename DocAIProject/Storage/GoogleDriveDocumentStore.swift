@@ -42,7 +42,8 @@ final class GoogleDriveDocumentStore: DocumentStorageBackend {
     static let shared = GoogleDriveDocumentStore()
     static let driveScope = "https://www.googleapis.com/auth/drive.file"
     static let driveReadOnlyScope = "https://www.googleapis.com/auth/drive.readonly"
-    private static let requiredScopes = [driveScope, driveReadOnlyScope]
+    static let driveMetadataScope = "https://www.googleapis.com/auth/drive.metadata"
+    private static let requiredScopes = [driveScope, driveReadOnlyScope, driveMetadataScope]
 
     private let folderMimeType = "application/vnd.google-apps.folder"
     private let rootFolderName = "docu-ai"
@@ -207,6 +208,56 @@ final class GoogleDriveDocumentStore: DocumentStorageBackend {
         }
     }
 
+    func renamePDF(at location: StoredPDFLocation, to newName: String) async throws -> StoredPDFLocation {
+        var renamedLocalURL: URL?
+        if let localURL = location.localURL,
+           FileManager.default.fileExists(atPath: localURL.path) {
+            if LocalDocumentStore.isDrivePreviewCache(localURL) {
+                renamedLocalURL = localURL
+            } else {
+                renamedLocalURL = (try? LocalDocumentStore.rename(fileAt: localURL, to: newName)) ?? localURL
+            }
+        }
+
+        do {
+            if let remoteID = location.remoteID {
+                try await rename(fileID: remoteID, to: newName)
+            }
+        } catch {
+            if let renamedLocalURL,
+               let originalURL = location.localURL,
+               renamedLocalURL != originalURL {
+                try? FileManager.default.moveItem(at: renamedLocalURL, to: originalURL)
+            }
+            throw error
+        }
+
+        return StoredPDFLocation(localURL: renamedLocalURL, remoteID: location.remoteID)
+    }
+
+    func rename(fileID: String, to newName: String) async throws {
+        let token = try await freshAccessToken()
+        let endpoint = URL(string: "https://www.googleapis.com/drive/v3/files")!
+            .appendingPathComponent(fileID)
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "PATCH"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(DriveFileRename(name: newName))
+        _ = try await requestData(for: request)
+    }
+
+    func downloadPDF(fileID: String) async throws -> Data {
+        let token = try await freshAccessToken()
+        var components = URLComponents(string: "https://www.googleapis.com/drive/v3/files")!
+        components.path += "/\(fileID)"
+        components.queryItems = [URLQueryItem(name: "alt", value: "media")]
+        guard let url = components.url else { throw GoogleDriveStorageError.invalidResponse }
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return try await requestData(for: request)
+    }
+
     func delete(fileID: String) async throws {
         let token = try await freshAccessToken()
         let endpoint = URL(string: "https://www.googleapis.com/drive/v3/files")!
@@ -263,6 +314,15 @@ final class GoogleDriveDocumentStore: DocumentStorageBackend {
                 remoteID: file.id
             )
         }
+    }
+
+    func localURL(for file: StoredPDF) async throws -> URL {
+        if let localURL = file.localURL, FileManager.default.fileExists(atPath: localURL.path) {
+            return localURL
+        }
+        guard let remoteID = file.remoteID else { throw GoogleDriveStorageError.invalidResponse }
+        let data = try await downloadPDF(fileID: remoteID)
+        return try LocalDocumentStore.cacheDownloadedPDF(data, fileID: remoteID)
     }
 
     private func freshAccessToken() async throws -> String {
@@ -413,6 +473,10 @@ private struct DriveFileMetadata: Encodable {
     let name: String
     let mimeType: String
     let parents: [String]?
+}
+
+private struct DriveFileRename: Encodable {
+    let name: String
 }
 
 private struct DriveFileList: Decodable {

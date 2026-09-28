@@ -45,12 +45,21 @@ There is no automated test target in the current project. Face ID and Google OAu
 - Analysis and vector indexing run on-device. Natural Language may need to download its embedding assets the first time indexing is used.
 - Imported files are currently limited to PDFs. The text excerpt stored with each document is truncated for local retrieval.
 
+## On-device storage and cache
+
+- Local PDFs, including the local copy retained for Google Drive imports, are stored under the app's Documents directory. These are durable app files, not an evictable cache.
+- Document metadata and text excerpts are stored in SwiftData. The RAG index is stored at `Application Support/DocAI/RAGVectors.sqlite` and contains text chunks, source metadata, and embeddings. It is derived data and can be rebuilt from local PDFs or the saved text excerpts.
+- Drive PDFs downloaded only for preview are cached under `Caches/DocAI/DrivePreviews`, keyed by Google Drive file ID. iOS may purge these files; DocAI downloads them again when needed. Renaming a Drive file does not change its ID.
+- Camera scans are first written to the temporary directory. DocAI removes the temporary PDF after a successful import, when another source replaces it, or when the import view is dismissed.
+- There is currently no in-app command to clear the RAG index or local PDF copies. Removing the app removes its local data; clearing the preview cache does not remove the Drive originals.
+
 # TODO
 1. ~~Add scan file via camera and crop as a pdf and import~~
 2. ~~Handle scenario when changing the persistance from Local to drive and back~~
 3. ~~Add logic to list files from persistance layer in the app Local / Drive~~
 4. ~~Update google drive client Id / Move it to valantra.app~~
-5. Handle repeat import of same scan, maybe provide an option to upload an update to a file or add smartness in AI to identify and inform and convert import to an update
+5. Ability to edit existing files filename, category, ability to add categories
+6. Handle repeat import of same scan, maybe provide an option to upload an update to a file or add smartness in AI to identify and inform and convert import to an update
 
-6. Improve chat to be made scalable by focusing a category to build RAG, use category RAG to chat against. Any other scalable way.
-7. Option to add a personal LLM subscription to do better chat
+7. Improve chat to be made scalable by focusing a category to build RAG, use category RAG to chat against. Any other scalable way.
+8. Option to add a personal LLM subscription to do better chat

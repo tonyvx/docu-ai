@@ -40,6 +40,8 @@ protocol DocumentStorageBackend {
     var isReadyForWrites: Bool { get }
 
     func listFiles() async throws -> [StoredPDF]
+    func localURL(for file: StoredPDF) async throws -> URL
     func savePDF(fileAt url: URL, suggestedPath: String, originalName: String) async throws -> StoredPDFLocation
+    func renamePDF(at location: StoredPDFLocation, to newName: String) async throws -> StoredPDFLocation
     func deletePDF(at location: StoredPDFLocation) async throws
 }

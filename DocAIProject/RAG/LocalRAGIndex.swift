@@ -98,6 +98,32 @@ final class LocalRAGIndex {
         }
     }
 
+    func updateMetadata(for documents: [Document]) throws {
+        guard !documents.isEmpty else { return }
+
+        try withDatabase { database in
+            try execute("BEGIN IMMEDIATE TRANSACTION", on: database)
+            do {
+                for document in documents {
+                    let statement = try prepare(
+                        "UPDATE rag_chunks SET file_name = ?, category = ?, document_type = ? WHERE document_id = ?",
+                        on: database
+                    )
+                    defer { sqlite3_finalize(statement) }
+                    try bind(document.originalFileName, at: 1, to: statement, on: database)
+                    try bind(document.category, at: 2, to: statement, on: database)
+                    try bind(document.documentType, at: 3, to: statement, on: database)
+                    try bind(document.id.uuidString, at: 4, to: statement, on: database)
+                    try step(statement, on: database)
+                }
+                try execute("COMMIT", on: database)
+            } catch {
+                try? execute("ROLLBACK", on: database)
+                throw error
+            }
+        }
+    }
+
     @discardableResult
     func indexMissingDocuments(from documents: [Document]) async throws -> Int {
         try await prepareEmbeddingModel()

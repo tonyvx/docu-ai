@@ -51,6 +51,7 @@ final class RAGChatService {
         session = LanguageModelSession(model: model, instructions: systemInstructions)
         let ragIndex = LocalRAGIndex.shared
         _ = try await ragIndex.indexMissingDocuments(from: documents)
+        try ragIndex.updateMetadata(for: documents)
         let retrievedChunks = try await ragIndex.search(
             question: question,
             documentIDs: Set(documents.map(\.id))

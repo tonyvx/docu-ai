@@ -7,6 +7,7 @@ struct ImportAndAnalyzeView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedURL: URL?
+    @State private var temporaryScanURL: URL?
     @State private var isImporting = false
     @State private var isScanning = false
     @State private var isProcessing = false
@@ -118,6 +119,7 @@ struct ImportAndAnalyzeView: View {
                 switch result {
                 case .success(let urls):
                     guard let url = urls.first else { return }
+                    removeTemporaryScan()
                     selectedURL = url
                     Task { await process(url: url) }
                 case .failure(let error):
@@ -128,6 +130,8 @@ struct ImportAndAnalyzeView: View {
                 DocumentScanner { result in
                     switch result {
                     case .success(let url):
+                        removeTemporaryScan()
+                        temporaryScanURL = url
                         selectedURL = url
                         Task { await process(url: url) }
                     case .failure(let error):
@@ -135,6 +139,9 @@ struct ImportAndAnalyzeView: View {
                     }
                 }
                 .ignoresSafeArea()
+            }
+            .onDisappear {
+                removeTemporaryScan()
             }
         }
     }
@@ -220,6 +227,7 @@ struct ImportAndAnalyzeView: View {
             // Keep the document discoverable through system search.
             SpotlightIndexer.index(doc)
 
+            removeTemporaryScan()
             dismiss()
         } catch {
             if let pendingDocument {
@@ -246,5 +254,14 @@ struct ImportAndAnalyzeView: View {
         let nameWithoutExtension = (enteredName as NSString).deletingPathExtension
         let baseName = nameWithoutExtension.isEmpty ? "Document" : nameWithoutExtension
         return "\(baseName).pdf"
+    }
+
+    private func removeTemporaryScan() {
+        guard let temporaryScanURL else { return }
+        try? FileManager.default.removeItem(at: temporaryScanURL)
+        self.temporaryScanURL = nil
+        if selectedURL == temporaryScanURL {
+            selectedURL = nil
+        }
     }
 }

@@ -1,7 +1,11 @@
 import SwiftUI
+import SwiftData
 import PDFKit
 
 struct DocumentDetailView: View {
+    @Environment(\.modelContext) private var modelContext
+    @State private var isEditing = false
+
     let document: Document
 
     var body: some View {
@@ -21,6 +25,18 @@ struct DocumentDetailView: View {
         }
         .background(Color(.systemGroupedBackground))
         .navigationTitle(document.originalFileName)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    isEditing = true
+                } label: {
+                    Label("Edit document", systemImage: "pencil")
+                }
+            }
+        }
+        .sheet(isPresented: $isEditing) {
+            EditDocumentSheet(document: document, onSave: updateDocument)
+        }
     }
 
     private var headerCard: some View {
@@ -122,14 +138,184 @@ struct DocumentDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
+
+    @MainActor
+    private func updateDocument(fileName: String, category: String) async throws {
+        let trimmedName = fileName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: "\\", with: "-")
+        let nameWithoutExtension = (trimmedName as NSString).deletingPathExtension
+        guard !nameWithoutExtension.isEmpty else { throw DocumentEditError.emptyFileName }
+        let updatedFileName = "\(nameWithoutExtension).pdf"
+
+        let storage: any DocumentStorageBackend = document.googleDriveFileID == nil
+            ? PersistenceLayer.local.store
+            : PersistenceLayer.googleDrive.store
+
+        let oldFileName = document.originalFileName
+        let oldLocalURL = document.localFileURL
+        let oldCategory = document.category
+        var renamedLocation: StoredPDFLocation?
+
+        if updatedFileName != oldFileName {
+            let location = try documentStorageLocation()
+            let renamed = try await storage.renamePDF(at: location, to: updatedFileName)
+            renamedLocation = renamed
+            document.originalFileName = updatedFileName
+            document.localFileURL = renamed.localURL
+        }
+
+        document.category = DocumentCategory.normalized(category)
+        do {
+            try modelContext.save()
+        } catch {
+            document.originalFileName = oldFileName
+            document.localFileURL = oldLocalURL
+            document.category = oldCategory
+            if let renamedLocation {
+                _ = try? await storage.renamePDF(at: renamedLocation, to: oldFileName)
+            }
+            throw error
+        }
+
+        SpotlightIndexer.index(document)
+        do {
+            try LocalRAGIndex.shared.updateMetadata(for: [document])
+        } catch {
+            print("RAG metadata refresh deferred until the next chat request: \(error.localizedDescription)")
+        }
+    }
+
+    private func documentStorageLocation() throws -> StoredPDFLocation {
+        if let localFileURL = document.localFileURL {
+            return StoredPDFLocation(localURL: localFileURL, remoteID: document.googleDriveFileID)
+        }
+        if let remoteID = document.googleDriveFileID {
+            return StoredPDFLocation(localURL: nil, remoteID: remoteID)
+        }
+        let folderURL = try LocalDocumentStore.folderURL(for: document.suggestedPath)
+        return StoredPDFLocation(
+            localURL: folderURL.appendingPathComponent(document.originalFileName),
+            remoteID: nil
+        )
+    }
+}
+
+private enum DocumentEditError: LocalizedError {
+    case emptyFileName
+
+    var errorDescription: String? {
+        "Enter a filename before saving."
+    }
+}
+
+private struct EditDocumentSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var fileName: String
+    @State private var category: String
+    @State private var newCategory = ""
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    let document: Document
+    let onSave: (String, String) async throws -> Void
+
+    init(document: Document, onSave: @escaping (String, String) async throws -> Void) {
+        self.document = document
+        self.onSave = onSave
+        _fileName = State(initialValue: document.originalFileName)
+        _category = State(initialValue: document.category)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("File") {
+                    TextField("Filename", text: $fileName)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+
+                Section("Category") {
+                    Picker("Category", selection: $category) {
+                        ForEach(DocumentCategory.selectableValues, id: \.self) { value in
+                            Text(value).tag(value)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    HStack {
+                        TextField("New category", text: $newCategory)
+                            .textInputAutocapitalization(.words)
+                        Button {
+                            guard let addedCategory = DocumentCategory.addCustom(newCategory) else { return }
+                            category = addedCategory
+                            newCategory = ""
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                        }
+                        .labelStyle(.iconOnly)
+                        .disabled(newCategory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityLabel("Add category")
+                    }
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("Edit Document")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(isSaving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if isSaving {
+                        ProgressView()
+                    } else {
+                        Button("Save") {
+                            Task { await save() }
+                        }
+                        .disabled(fileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func save() async {
+        isSaving = true
+        errorMessage = nil
+        defer { isSaving = false }
+
+        do {
+            try await onSave(fileName, category)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
 }
 
 private struct PDFPreviewSection: View {
+    @Environment(\.modelContext) private var modelContext
+
     let document: Document
 
     @State private var pdfDocument: PDFDocument?
     @State private var currentPage = 0
     @State private var unavailableMessage = "The saved PDF file could not be found. Reimport this document to restore its preview."
+
+    private var previewTaskID: String {
+        "\(document.localFileURL?.path ?? "")|\(document.googleDriveFileID ?? "")|\(document.originalFileName)"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -164,10 +350,15 @@ private struct PDFPreviewSection: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .task( loadPDF )
+        .task(id: previewTaskID) {
+            await loadPDF()
+        }
     }
 
-    private func loadPDF() {
+    private func loadPDF() async {
+        pdfDocument = nil
+        currentPage = 0
+        unavailableMessage = "The saved PDF file could not be found. Reimport this document to restore its preview."
         let fileManager = FileManager.default
         var candidateURLs = [URL]()
 
@@ -196,6 +387,35 @@ private struct PDFPreviewSection: View {
             if let pdf = openPDF(at: fileURL), pdf.pageCount > 0 {
                 pdfDocument = pdf
                 currentPage = 0
+                return
+            }
+        }
+
+        if let remoteID = document.googleDriveFileID {
+            do {
+                let data = try await GoogleDriveDocumentStore.shared.downloadPDF(fileID: remoteID)
+                guard let pdf = PDFDocument(data: data), pdf.pageCount > 0 else {
+                    unavailableMessage = "The Google Drive file could not be read as a PDF."
+                    return
+                }
+
+                let cachedURL = try LocalDocumentStore.cacheDownloadedPDF(
+                    data,
+                    fileID: remoteID
+                )
+                let previousURL = document.localFileURL
+                document.localFileURL = cachedURL
+                do {
+                    try modelContext.save()
+                } catch {
+                    document.localFileURL = previousURL
+                    try? FileManager.default.removeItem(at: cachedURL)
+                    throw error
+                }
+                pdfDocument = pdf
+                return
+            } catch {
+                unavailableMessage = error.localizedDescription
                 return
             }
         }
