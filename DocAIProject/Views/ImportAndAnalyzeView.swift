@@ -13,11 +13,20 @@ struct ImportAndAnalyzeView: View {
     @State private var selectedCategory = "Insurance"
     @State private var extractedText = ""
     @State private var errorMessage: String?
+    @AppStorage("persistenceLayer") private var persistenceLayer = PersistenceLayer.local.rawValue
 
     private let analyzer = DocumentAnalyzer()
 
     private var availableCategories: [String] {
         DocumentCategory.selectableValues
+    }
+
+    private var selectedPersistenceLayer: PersistenceLayer {
+        PersistenceLayer(rawValue: persistenceLayer) ?? .local
+    }
+
+    private var canSave: Bool {
+        selectedPersistenceLayer != .googleDrive || GoogleDriveDocumentStore.shared.hasDriveAccess
     }
 
     private func normalizeCategory(_ value: String) -> String {
@@ -28,7 +37,7 @@ struct ImportAndAnalyzeView: View {
         NavigationStack {
             Form {
                 Section("Source") {
-                    Button("Choose PDF from Files / iCloud") {
+                    Button("Choose PDF from Files") {
                         isImporting = true
                     }
                     if let url = selectedURL {
@@ -61,10 +70,16 @@ struct ImportAndAnalyzeView: View {
                     }
 
                     Section {
-                        Button("Approve & Move to iCloud") {
+                        Button(saveButtonTitle) {
                             Task { await confirmAndSave() }
                         }
                         .buttonStyle(.borderedProminent)
+                        .disabled(isProcessing || !canSave)
+                        if selectedPersistenceLayer == .googleDrive && !canSave {
+                            Text("Connect Google Drive in Settings before saving this document.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -120,16 +135,29 @@ struct ImportAndAnalyzeView: View {
         isProcessing = true
         defer { isProcessing = false }
 
+        var localDestination: URL?
+        var uploadedFileID: String?
+        var pendingDocument: Document?
+
         let accessing = sourceURL.startAccessingSecurityScopedResource()
         defer { if accessing { sourceURL.stopAccessingSecurityScopedResource() } }
 
         do {
-            // Move into iCloud under the suggested path
-            let destination = try ICloudDocumentStore.move(
+            // Keep a local copy for previews and document search.
+            let destination = try LocalDocumentStore.copy(
                 fileAt: sourceURL,
                 suggestedPath: analysis.suggestedPath,
                 originalName: sourceURL.lastPathComponent
             )
+            localDestination = destination
+
+            if selectedPersistenceLayer == .googleDrive {
+                uploadedFileID = try await GoogleDriveDocumentStore.shared.upload(
+                    fileAt: destination,
+                    suggestedPath: analysis.suggestedPath,
+                    originalName: sourceURL.lastPathComponent
+                )
+            }
 
             // Create SwiftData record
             let doc = Document(
@@ -141,6 +169,7 @@ struct ImportAndAnalyzeView: View {
                 extractedText: String(extractedText.prefix(8000))   // keep a usable excerpt
             )
             doc.iCloudURL = destination
+            doc.googleDriveFileID = uploadedFileID
 
             // Simple date parsing (improve later)
             if let dateStr = analysis.documentDate {
@@ -149,10 +178,12 @@ struct ImportAndAnalyzeView: View {
             }
 
             modelContext.insert(doc)
+            pendingDocument = doc
             try modelContext.save()
+            pendingDocument = nil
 
             do {
-                try LocalRAGIndex.shared.index(document: doc, fullText: extractedText)
+                try await LocalRAGIndex.shared.index(document: doc, fullText: extractedText)
             } catch {
                 print("Local RAG indexing deferred until the next chat scan: \(error.localizedDescription)")
             }
@@ -162,7 +193,22 @@ struct ImportAndAnalyzeView: View {
 
             dismiss()
         } catch {
+            if let pendingDocument {
+                modelContext.delete(pendingDocument)
+            }
+            if let uploadedFileID {
+                try? await GoogleDriveDocumentStore.shared.delete(fileID: uploadedFileID)
+            }
+            if let localDestination {
+                try? FileManager.default.removeItem(at: localDestination)
+            }
             errorMessage = error.localizedDescription
         }
+    }
+
+    private var saveButtonTitle: String {
+        selectedPersistenceLayer == .googleDrive
+            ? "Approve & Save to Google Drive"
+            : "Approve & Save Locally"
     }
 }

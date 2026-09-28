@@ -5,7 +5,8 @@ import SwiftData
 final class Document {
     var id: UUID
     var originalFileName: String
-    var iCloudURL: URL?                    // bookmark or file URL after move
+    var iCloudURL: URL?                    // Legacy field storing the local PDF cache URL
+    var googleDriveFileID: String?
     var category: String
     var documentType: String
     var documentDate: Date?
@@ -28,6 +29,7 @@ final class Document {
         
         self.id = newID
         self.originalFileName = originalFileName
+        self.googleDriveFileID = nil
         self.category = category
         self.documentType = documentType
         self.documentDate = documentDate

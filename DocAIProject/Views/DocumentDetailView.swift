@@ -175,8 +175,7 @@ private struct PDFPreviewSection: View {
             candidateURLs.append(savedURL)
         }
 
-        if let documentsDirectory = try? ICloudDocumentStore.documentsDirectory() {
-            let folderURL = documentsDirectory.appendingPathComponent(document.suggestedPath, isDirectory: true)
+        if let folderURL = try? LocalDocumentStore.folderURL(for: document.suggestedPath) {
             candidateURLs.append(folderURL.appendingPathComponent(document.originalFileName))
 
             if let files = try? fileManager.contentsOfDirectory(

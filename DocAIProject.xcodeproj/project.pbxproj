@@ -6,6 +6,10 @@
 	objectVersion = 90;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		000000000000000130000001 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000131000001 /* GoogleSignIn */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		000000000000000000000120 /* DocAIProject.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DocAIProject.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -22,6 +26,7 @@
 		000000000000000130000000 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				000000000000000130000001 /* GoogleSignIn in Frameworks */,
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -60,6 +65,9 @@
 				000000000000000000000010 /* DocAIProject */,
 			);
 			name = DocAIProject;
+			packageProductDependencies = (
+				000000000000000131000001 /* GoogleSignIn */,
+			);
 			productName = DocAIProject;
 			productReference = 000000000000000000000120 /* DocAIProject.app */;
 			productType = "com.apple.product-type.application";
@@ -88,6 +96,9 @@
 			);
 			mainGroup = 000000000000000000000001;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				000000000000000132000001 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+			);
 			preferredProjectObjectVersion = 90;
 			productRefGroup = 000000000000000000000020 /* Products */;
 			projectDirPath = "";
@@ -259,8 +270,14 @@
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				GOOGLE_IOS_BUNDLE_ID = com.anthonyvalantrapersonalteam.DocAIProject;
+				GOOGLE_IOS_CLIENT_ID = "475952544527-06nd1l6jt5aodbp6dra7i1htktb08sv8.apps.googleusercontent.com";
+				GOOGLE_IOS_REVERSED_CLIENT_ID = "com.googleusercontent.apps.475952544527-06nd1l6jt5aodbp6dra7i1htktb08sv8";
+				INFOPLIST_EXPAND_BUILD_SETTINGS = YES;
+				INFOPLIST_FILE = GoogleOAuthInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Docu AI";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "Unlock Docu AI to access your documents.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -303,8 +320,14 @@
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				GOOGLE_IOS_BUNDLE_ID = com.anthonyvalantrapersonalteam.DocAIProject;
+				GOOGLE_IOS_CLIENT_ID = "475952544527-06nd1l6jt5aodbp6dra7i1htktb08sv8.apps.googleusercontent.com";
+				GOOGLE_IOS_REVERSED_CLIENT_ID = "com.googleusercontent.apps.475952544527-06nd1l6jt5aodbp6dra7i1htktb08sv8";
+				INFOPLIST_EXPAND_BUILD_SETTINGS = YES;
+				INFOPLIST_FILE = GoogleOAuthInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Docu AI";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "Unlock Docu AI to access your documents.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -355,6 +378,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		000000000000000132000001 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.2.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		000000000000000131000001 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 000000000000000132000001 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 000000000000000000000000 /* Project object */;
 }

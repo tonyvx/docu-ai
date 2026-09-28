@@ -1,44 +1,46 @@
-# DocAI Project
+# DocAI
 
-A SwiftUI document library and AI assistant for organizing personal PDFs and interrogating their contents.
+DocAI is an iOS document library for importing, analyzing, organizing, and asking questions about PDFs. It uses SwiftUI, SwiftData, PDFKit, Vision, Apple Foundation Models, and Google Drive.
 
-## Current app flow
+## Features
 
-1. Import a PDF from Files or iCloud
-2. Extract text using PDFKit and Vision OCR fallback
-3. Classify the document with a Foundation Models call
-4. Review the AI analysis and choose a valid category
-5. Save the document metadata into SwiftData
-6. Search the document library and ask questions in the chat view
-
-## Project structure
-
-- `DocAI.swift` — app entry point
-- `Models/` — `Document` and `DocumentAnalysis`
-- `Ingestion/` — PDF extraction logic
-- `AI/` — document analysis with Foundation Models
-- `RAG/` — retrieval and Spotlight indexing
-- `Storage/` — local document persistence helper
-- `Views/` — SwiftUI screens
-- `Resources/` — category definitions and shared metadata
+- Import PDFs from Files and extract selectable text, with Vision OCR for image-only pages.
+- Analyze and classify documents with Apple Foundation Models.
+- Browse, filter, preview, and search document records; index them with Spotlight.
+- Ask document-grounded questions using a local SQLite vector index and Natural Language embeddings.
+- Choose Local or Google Drive as the destination for new PDF imports.
+- Protect the app interface with Face ID or the device passcode.
 
 ## Requirements
 
-- Xcode 26+ / latest available toolchain
-- iOS 26+ deployment target for the current project configuration
-- Device or simulator with Foundation Models support for on-device analysis
+- Xcode 26 or later.
+- iOS 26 or later.
+- A device that supports Apple Foundation Models for on-device document analysis.
+- Google Cloud project with the Google Drive API enabled to use Drive storage.
 
-## Notes
+## Google Drive setup
 
-- Text extraction keeps a truncated excerpt for RAG use.
-- Retrieval uses a simple term-scoring strategy rather than embeddings.
-- The app currently stores documents in the app sandbox and indexes them for Spotlight search.
-- Its current design is a working prototype for personal document AI workflows.
+1. In Google Cloud Console, configure the OAuth consent screen and enable the Google Drive API.
+2. Create an OAuth client of type **iOS**. Its registered bundle ID must match the app's `PRODUCT_BUNDLE_IDENTIFIER` in both Debug and Release. The checked-in project currently uses `com.anthonyvalantrapersonalteam.DocAIProject`.
+3. Set `GOOGLE_IOS_CLIENT_ID`, `GOOGLE_IOS_REVERSED_CLIENT_ID`, and `GOOGLE_IOS_BUNDLE_ID` in both Xcode build configurations. Use the values for that same iOS OAuth client; the bundle ID must match both the app and the OAuth registration.
+4. Build and run the app, open **Settings**, select **Google Drive**, and connect a Google account.
 
-## Next improvements
+The iOS client ID is public application configuration; do not add a client secret to the app. `GoogleOAuthInfo.plist` expands the build settings into the `GIDClientID` value and OAuth callback URL scheme.
 
-- Better retrieval ranking with metadata weighting and richer search
-- Persistent security-scoped bookmarks for external files
-- More robust category validation and custom user categories
-- Image + scanned document support
-- Better chat history and source citations
+Drive uploads are placed in a `docu-ai` folder, with subfolders from the suggested filing path. The app requests the `drive.file` scope, which limits access to files created or opened by DocAI. PDF files are stored in Drive; document metadata, extracted text, and the local SQLite search index remain on the device. A local PDF copy is also retained for preview and search.
+
+## Build and validate
+
+Resolve the Swift package dependencies in Xcode, then build the `DocAIProject` scheme. From Terminal, the simulator build can be checked with:
+
+```sh
+xcodebuild -project DocAIProject.xcodeproj -scheme DocAIProject -sdk iphonesimulator -configuration Debug build CODE_SIGNING_ALLOWED=NO
+```
+
+There is no automated test target in the current project. Face ID and Google OAuth flows require a device or simulator session to exercise interactively; Google Drive uploads also require valid OAuth configuration and network access.
+
+## Data and privacy notes
+
+- Face ID gates access to the app UI; it does not encrypt the app's SwiftData store, local PDF cache, or Drive files.
+- Analysis and vector indexing run on-device. Natural Language may need to download its embedding assets the first time indexing is used.
+- Imported files are currently limited to PDFs. The text excerpt stored with each document is truncated for local retrieval.

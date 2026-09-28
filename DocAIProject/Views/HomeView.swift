@@ -11,6 +11,9 @@ struct HomeView: View {
 
             ChatView()
                 .tabItem { Label("Chat", systemImage: "bubble.left.and.bubble.right.fill") }
+
+            SettingsView()
+                .tabItem { Label("Settings", systemImage: "gearshape.fill") }
         }
         .tint(.accentColor)
     }

@@ -85,7 +85,7 @@ struct ChatView: View {
                     HStack {
                         if message.isUser { Spacer() }
 
-                        Text(message.text)
+                        MessageText(message: message)
                             .padding(14)
                             .frame(maxWidth: 320, alignment: .leading)
                             .background(message.isUser ? Color.accentColor : Color(.secondarySystemBackground))
@@ -144,7 +144,7 @@ struct ChatView: View {
         }
 
         do {
-            let priorConversation = messages.map { message in
+            let priorConversation = messages.dropLast().map { message in
                 let role = message.isUser ? "User" : "Assistant"
                 return "\(role): \(message.text)"
             }
@@ -181,4 +181,18 @@ private struct ChatMessage: Identifiable {
     let id = UUID()
     let text: String
     let isUser: Bool
+}
+
+private struct MessageText: View {
+    let message: ChatMessage
+
+    var body: some View {
+        if message.isUser {
+            Text(message.text)
+        } else if let markdown = try? AttributedString(markdown: message.text) {
+            Text(markdown)
+        } else {
+            Text(message.text)
+        }
+    }
 }
