@@ -41,6 +41,8 @@ enum GoogleDriveStorageError: LocalizedError {
 final class GoogleDriveDocumentStore: DocumentStorageBackend {
     static let shared = GoogleDriveDocumentStore()
     static let driveScope = "https://www.googleapis.com/auth/drive.file"
+    static let driveReadOnlyScope = "https://www.googleapis.com/auth/drive.readonly"
+    private static let requiredScopes = [driveScope, driveReadOnlyScope]
 
     private let folderMimeType = "application/vnd.google-apps.folder"
     private let rootFolderName = "docu-ai"
@@ -68,7 +70,8 @@ final class GoogleDriveDocumentStore: DocumentStorageBackend {
     }
 
     var hasDriveAccess: Bool {
-        GIDSignIn.sharedInstance.currentUser?.grantedScopes?.contains(Self.driveScope) == true
+        guard let grantedScopes = GIDSignIn.sharedInstance.currentUser?.grantedScopes else { return false }
+        return Self.requiredScopes.allSatisfy { grantedScopes.contains($0) }
     }
 
     var isReadyForWrites: Bool { hasDriveAccess }
@@ -80,12 +83,14 @@ final class GoogleDriveDocumentStore: DocumentStorageBackend {
         }
         GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
         if let currentUser = GIDSignIn.sharedInstance.currentUser {
-            return currentUser.grantedScopes?.contains(Self.driveScope) == true
+            let requiredScopes = Self.requiredScopes
+            return requiredScopes.allSatisfy { currentUser.grantedScopes?.contains($0) == true }
         }
-        let requiredScope = Self.driveScope
+        let requiredScopes = Self.requiredScopes
         return await withCheckedContinuation { continuation in
             GIDSignIn.sharedInstance.restorePreviousSignIn { user, _ in
-                continuation.resume(returning: user?.grantedScopes?.contains(requiredScope) == true)
+                let hasRequiredScopes = requiredScopes.allSatisfy { user?.grantedScopes?.contains($0) == true }
+                continuation.resume(returning: hasRequiredScopes)
             }
         }
     }
@@ -117,13 +122,15 @@ final class GoogleDriveDocumentStore: DocumentStorageBackend {
             user = result.user
         }
 
-        if user.grantedScopes?.contains(Self.driveScope) != true {
-            let requiredScope = Self.driveScope
+        let grantedScopes = Set(user.grantedScopes ?? [])
+        let scopesToAdd = Self.requiredScopes.filter { !grantedScopes.contains($0) }
+        if !scopesToAdd.isEmpty {
+            let requiredScopes = Self.requiredScopes
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                user.addScopes([Self.driveScope], presenting: viewController) { result, error in
+                user.addScopes(scopesToAdd, presenting: viewController) { result, error in
                     if let error {
                         continuation.resume(throwing: error)
-                    } else if result?.user.grantedScopes?.contains(requiredScope) == true {
+                    } else if requiredScopes.allSatisfy({ result?.user.grantedScopes?.contains($0) == true }) {
                         continuation.resume()
                     } else {
                         continuation.resume(throwing: GoogleDriveStorageError.driveAccessNotGranted)
@@ -212,28 +219,36 @@ final class GoogleDriveDocumentStore: DocumentStorageBackend {
 
     func listPDFs() async throws -> [GoogleDrivePDF] {
         let token = try await freshAccessToken()
-        guard let rootFolderID = try await findFolderID(named: rootFolderName, token: token) else {
-            return []
-        }
-
-        var folders = [rootFolderID]
-        var visitedFolders = Set<String>()
         var pdfs = [GoogleDrivePDF]()
-        var folderIndex = 0
+        var pageToken: String?
 
-        while folderIndex < folders.count {
-            let folderID = folders[folderIndex]
-            folderIndex += 1
-            guard visitedFolders.insert(folderID).inserted else { continue }
-
-            for file in try await listChildren(of: folderID, token: token) {
-                if file.mimeType == folderMimeType {
-                    folders.append(file.id)
-                } else if file.mimeType == "application/pdf" {
-                    pdfs.append(GoogleDrivePDF(id: file.id, name: file.name ?? "Untitled.pdf", modifiedTime: file.modifiedTime))
-                }
+        repeat {
+            guard var components = URLComponents(string: "https://www.googleapis.com/drive/v3/files") else {
+                throw GoogleDriveStorageError.invalidResponse
             }
-        }
+            var queryItems = [
+                URLQueryItem(name: "q", value: "mimeType = 'application/pdf' and trashed = false"),
+                URLQueryItem(name: "fields", value: "nextPageToken,files(id,name,mimeType,modifiedTime)"),
+                URLQueryItem(name: "pageSize", value: "1000")
+            ]
+            if let pageToken {
+                queryItems.append(URLQueryItem(name: "pageToken", value: pageToken))
+            }
+            components.queryItems = queryItems
+            guard let url = components.url else { throw GoogleDriveStorageError.invalidResponse }
+            var request = URLRequest(url: url)
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            let listing: DriveFileList = try await perform(request)
+            pdfs.append(contentsOf: listing.files.compactMap { file in
+                guard file.mimeType == "application/pdf" else { return nil }
+                return GoogleDrivePDF(
+                    id: file.id,
+                    name: file.name ?? "Untitled.pdf",
+                    modifiedTime: file.modifiedTime
+                )
+            })
+            pageToken = listing.nextPageToken
+        } while pageToken != nil
 
         return pdfs.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
@@ -254,7 +269,8 @@ final class GoogleDriveDocumentStore: DocumentStorageBackend {
         guard let user = await restoredUser() else {
             throw GoogleDriveStorageError.signInRequired
         }
-        guard user.grantedScopes?.contains(Self.driveScope) == true else {
+        let requiredScopes = Self.requiredScopes
+        guard requiredScopes.allSatisfy({ user.grantedScopes?.contains($0) == true }) else {
             throw GoogleDriveStorageError.driveAccessNotGranted
         }
         let refreshedUser: GIDGoogleUser = try await withCheckedThrowingContinuation { continuation in

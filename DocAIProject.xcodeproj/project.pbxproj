@@ -271,8 +271,8 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				GOOGLE_IOS_BUNDLE_ID = com.anthonyvalantrapersonalteam.DocAIProject;
-				GOOGLE_IOS_CLIENT_ID = "475952544527-06nd1l6jt5aodbp6dra7i1htktb08sv8.apps.googleusercontent.com";
-				GOOGLE_IOS_REVERSED_CLIENT_ID = "com.googleusercontent.apps.475952544527-06nd1l6jt5aodbp6dra7i1htktb08sv8";
+				GOOGLE_IOS_CLIENT_ID = "344636954363-gb4iqhb02sno81kdq78avvng044jgrkm.apps.googleusercontent.com";
+				GOOGLE_IOS_REVERSED_CLIENT_ID = "com.googleusercontent.apps.344636954363-gb4iqhb02sno81kdq78avvng044jgrkm";
 				INFOPLIST_EXPAND_BUILD_SETTINGS = YES;
 				INFOPLIST_FILE = GoogleOAuthInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Docu AI";
@@ -322,8 +322,8 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				GOOGLE_IOS_BUNDLE_ID = com.anthonyvalantrapersonalteam.DocAIProject;
-				GOOGLE_IOS_CLIENT_ID = "475952544527-06nd1l6jt5aodbp6dra7i1htktb08sv8.apps.googleusercontent.com";
-				GOOGLE_IOS_REVERSED_CLIENT_ID = "com.googleusercontent.apps.475952544527-06nd1l6jt5aodbp6dra7i1htktb08sv8";
+				GOOGLE_IOS_CLIENT_ID = "344636954363-gb4iqhb02sno81kdq78avvng044jgrkm.apps.googleusercontent.com";
+				GOOGLE_IOS_REVERSED_CLIENT_ID = "com.googleusercontent.apps.344636954363-gb4iqhb02sno81kdq78avvng044jgrkm";
 				INFOPLIST_EXPAND_BUILD_SETTINGS = YES;
 				INFOPLIST_FILE = GoogleOAuthInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Docu AI";

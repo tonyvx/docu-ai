@@ -49,7 +49,7 @@ There is no automated test target in the current project. Face ID and Google OAu
 1. ~~Add scan file via camera and crop as a pdf and import~~
 2. ~~Handle scenario when changing the persistance from Local to drive and back~~
 3. ~~Add logic to list files from persistance layer in the app Local / Drive~~
-4. Add to settings options to update google drive client Id / Investigate best way to manage it - Move it to valantra.app
+4. ~~Update google drive client Id / Move it to valantra.app~~
 5. Handle repeat import of same scan, maybe provide an option to upload an update to a file or add smartness in AI to identify and inform and convert import to an update
 
 6. Improve chat to be made scalable by focusing a category to build RAG, use category RAG to chat against. Any other scalable way.
